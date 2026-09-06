@@ -5,7 +5,7 @@
 
 services:
   recipe2md:
-    image: ghcr.io/martinca/recipe2md:latest
+    image: ghcr.io/martinca/recipe2md:latest@sha256:3defaee944c07682bc67f81466a801c6d75dc56f925e825a7f52635f025aeb11
     # To build from a checkout instead of pulling, comment out `image` and use:
     # build: .
     container_name: recipe2md
