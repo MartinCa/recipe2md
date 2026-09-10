@@ -1,5 +1,5 @@
 # Both stages share a base distro so the virtualenv copied between them stays valid.
-ARG UV_IMAGE=ghcr.io/astral-sh/uv:0.12.12-python3.14-trixie-slim@sha256:3e946c14be030af60f5ae35deafaad6312e9ef147f3a052f73da43962696d6f2
+ARG UV_IMAGE=ghcr.io/astral-sh/uv:0.12.13-python3.14-trixie-slim@sha256:d2525beeae88affd18389bf69292abf9b5cbbb3f5c5242b6da3d20e304959b37
 ARG RUNTIME_IMAGE=python:3.14.7-slim-trixie@sha256:cad9a2c871761c413caa6fdd6441c783451e740a48aaeba60ae62a8b53525ef6
 
 FROM ${UV_IMAGE} AS builder
