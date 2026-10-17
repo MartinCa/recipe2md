@@ -31,7 +31,6 @@ def dedupe_stems(files: dict[str, bytes], used_stems: dict[str, int]) -> dict[st
     while new_stem in used_stems:
         count += 1
         new_stem = f"{stem} {count}"
-    used_stems[stem] = count + 1
     used_stems[new_stem] = 1
 
     renamed = {}

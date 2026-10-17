@@ -81,3 +81,10 @@ def test_literal_title_matching_a_renamed_stem_does_not_collide() -> None:
 
     with zipfile.ZipFile(BytesIO(build_zip(files, []))) as archive:
         assert sorted(archive.namelist()) == ["Soup 1 1.md", "Soup 1.md", "Soup.md"]
+
+
+def test_numbering_stays_contiguous_after_skipping_a_taken_stem() -> None:
+    files = [{"Soup.md": b"a"}, {"Soup 1.md": b"b"}, {"Soup.md": b"c"}, {"Soup.md": b"d"}]
+
+    with zipfile.ZipFile(BytesIO(build_zip(files, []))) as archive:
+        assert sorted(archive.namelist()) == ["Soup 1.md", "Soup 2.md", "Soup 3.md", "Soup.md"]
