@@ -2,16 +2,18 @@
 
 from __future__ import annotations
 
+import io
 from pathlib import Path
 
 import httpx
 import pytest
 import respx
+from PIL import Image
 
 from app.config import Settings
 from app.mealie import (
     MealieError,
-    _image_url,
+    _image_path,
     _ingredient_groups,
     _parse_minutes,
     fetch_recipe,
@@ -98,10 +100,46 @@ def test_parse_minutes(raw: str | None, expected: int | None) -> None:
     assert _parse_minutes(raw) == expected
 
 
-def test_image_url_only_accepts_absolute_urls() -> None:
-    assert _image_url({"image": "https://example.com/img.jpg"}) == "https://example.com/img.jpg"
-    assert _image_url({"image": "some-asset-key.webp"}) is None
-    assert _image_url({}) is None
+def test_image_path_uses_the_media_route_keyed_by_recipe_id() -> None:
+    data = {"id": "abc-123", "image": "cachekey"}
+    assert _image_path(data) == "/api/media/recipes/abc-123/images/original.webp"
+    assert _image_path({"id": "abc-123", "image": None}) is None
+    assert _image_path({"image": "cachekey"}) is None
+
+
+def test_to_recipe_maps_rating_notes_servings_and_step_titles() -> None:
+    recipe = to_recipe(
+        {
+            "name": "Soup",
+            "recipeServings": 6.0,
+            "rating": 4.5,
+            "notes": [{"title": "Tip", "text": "Use stock."}, {"title": "", "text": "Salt."}],
+            "recipeIngredient": [{"title": "", "display": "2 cups stock"}],
+            "recipeInstructions": [{"title": "Prep", "text": "Chop."}, {"text": "Boil."}],
+        }
+    )
+
+    assert recipe.servings == 6
+    assert recipe.rating == 4.5
+    assert recipe.notes == ["**Tip**\nUse stock.", "Salt."]
+    assert recipe.directions == ["**Prep** Chop.", "Boil."]
+    assert recipe.needs_metric is True
+
+
+def test_ingredient_groups_rebuilds_text_when_display_is_empty() -> None:
+    items = [
+        {
+            "title": "",
+            "display": "",
+            "quantity": 500.0,
+            "unit": {"name": "g"},
+            "food": {"name": "flour"},
+            "note": "sifted",
+        },
+        {"title": "", "display": "", "quantity": 0, "food": {"name": "salt"}, "note": ""},
+    ]
+
+    assert _ingredient_groups(items)[0].items == ["500 g flour sifted", "salt"]
 
 
 @respx.mock
@@ -199,3 +237,68 @@ async def test_migrate_from_mealie_raises_when_the_list_call_fails(tmp_path: Pat
 
     with pytest.raises(MealieError):
         await migrate_from_mealie("https://mealie.example.com", "test-token", tmp_path, Settings())
+
+
+@respx.mock
+async def test_migrate_from_mealie_downloads_images_and_dedupes_titles(tmp_path: Path) -> None:
+    buffer = io.BytesIO()
+    Image.new("RGB", (8, 8), "red").save(buffer, format="WEBP")
+    respx.get("https://mealie.example.com/api/recipes", params={"page": "1", "perPage": "50"}).mock(
+        return_value=httpx.Response(
+            200, json={"items": [{"slug": "soup"}, {"slug": "soup-2"}], "next": None}
+        )
+    )
+    for slug, recipe_id in (("soup", "id-1"), ("soup-2", "id-2")):
+        respx.get(f"https://mealie.example.com/api/recipes/{slug}").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "id": recipe_id,
+                    "name": "Soup",
+                    "image": "key",
+                    "recipeIngredient": [{"title": "", "display": "1 onion"}],
+                    "recipeInstructions": [{"text": "Simmer."}],
+                },
+            )
+        )
+    image_route = respx.get(
+        url__regex=r"https://mealie\.example\.com/api/media/recipes/id-\d/images/original\.webp"
+    ).mock(return_value=httpx.Response(200, content=buffer.getvalue()))
+
+    failures = await migrate_from_mealie(
+        "https://mealie.example.com", "test-token", tmp_path, Settings()
+    )
+
+    assert failures == 0
+    assert image_route.call_count == 2
+    assert (tmp_path / "Soup.md").exists()
+    assert (tmp_path / "Soup 1.md").exists()
+    assert (tmp_path / "_attachments" / "Soup.jpg").exists()
+    assert (tmp_path / "_attachments" / "Soup 1.jpg").exists()
+    assert "![[Soup 1.jpg]]" in (tmp_path / "Soup 1.md").read_text()
+
+
+def test_title_only_step_carries_over_to_the_next_step() -> None:
+    recipe = to_recipe(
+        {
+            "name": "Soup",
+            "recipeInstructions": [
+                {"title": "For the sauce", "text": ""},
+                {"text": "Whisk."},
+                {"text": "Simmer."},
+            ],
+        }
+    )
+
+    assert recipe.directions == ["**For the sauce** Whisk.", "Simmer."]
+
+
+def test_title_only_note_keeps_its_title() -> None:
+    recipe = to_recipe({"name": "Soup", "notes": [{"title": "Tip", "text": ""}]})
+
+    assert recipe.notes == ["**Tip**"]
+
+
+@pytest.mark.parametrize(("servings", "expected"), [(True, None), (2.5, 2), (4.0, 4), (0, None)])
+def test_servings_fallback(servings: object, expected: int | None) -> None:
+    assert to_recipe({"name": "Soup", "recipeServings": servings}).servings == expected

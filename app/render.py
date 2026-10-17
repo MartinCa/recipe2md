@@ -41,7 +41,7 @@ def render(recipe: Recipe) -> dict[str, bytes]:
     lines.append("")
     lines.extend(_directions_lines(recipe.directions))
     lines.append("")
-    lines.extend(_NOTES_LINES)
+    lines.extend(_notes_lines(recipe.notes))
     lines.extend(_nutrition_lines(recipe.nutrients))
 
     markdown = "\n".join(lines).rstrip("\n") + "\n"
@@ -80,7 +80,7 @@ def _frontmatter_lines(recipe: Recipe) -> list[str]:
         _field("cuisine", _yaml_scalar(recipe.cuisine) if recipe.cuisine else ""),
         _field("servings", str(recipe.servings) if recipe.servings is not None else ""),
         _field("time", time_text or ""),
-        "rating:",
+        _field("rating", f"{recipe.rating:g}" if recipe.rating else ""),
         "tags:",
         *(f"  - {tag}" for tag in tags),
         "---",
@@ -107,8 +107,12 @@ def _directions_lines(directions: list[str]) -> list[str]:
     return lines
 
 
-# Where the user writes after cooking -- always present, always empty.
-_NOTES_LINES = ["## Notes", ""]
+def _notes_lines(notes: list[str]) -> list[str]:
+    """Where the user writes after cooking -- always present, empty unless notes were migrated."""
+    lines = ["## Notes", ""]
+    for note in notes:
+        lines.extend([note, ""])
+    return lines
 
 
 def _nutrition_lines(nutrients: dict[str, str]) -> list[str]:

@@ -132,8 +132,8 @@ A few rules worth knowing if a recipe looks unexpected:
 - **Imperial units are detected, not converted.** Cup-to-gram conversion is
   ingredient-dependent and lossy, so a recipe using cups, oz, lb, or °F gets a
   `needs-metric` tag instead of a guessed conversion. Convert by hand.
-- **`## Notes` is always present and always empty** -- it's where you write
-  after cooking.
+- **`## Notes` is always present** -- empty for scraped recipes (it's where you
+  write after cooking), pre-filled only by the Mealie migration.
 
 ### Zip layout
 
@@ -198,16 +198,37 @@ Two commands live outside the web app, sharing the same rendering pipeline as
 # without going through the browser.
 uv run python -m app.cli scrape https://example.com/a-recipe --out ./out
 
-# Migrate every recipe out of a Mealie instance. Reads GET /api/recipes for
-# slugs and GET /api/recipes/{slug} for detail, mapping orgURL -> source,
-# recipeYield -> servings, and totalTime -> time.
+# Migrate every recipe out of a Mealie instance (token from Settings -> API
+# Tokens; may also be supplied as $MEALIE_API_TOKEN).
 uv run python -m app.cli mealie-migrate https://mealie.example.com \
   --token "$MEALIE_API_TOKEN" --out ./out
 ```
 
-Mealie's own asset-serving path varies by version, so image migration only
-picks up cover images whose `image` field is already an absolute URL; anything
-else is left for you to re-attach by hand.
+`mealie-migrate` pages through `GET /api/recipes`, reads each
+`GET /api/recipes/{slug}`, and downloads the cover from
+`/api/media/recipes/{id}/images/original.webp`, resized to a JPEG like any
+other cover. It maps `orgURL` -> `source`, `recipeYield`/`recipeServings` ->
+`servings`, `totalTime` -> `time`, `rating` -> `rating`, and Mealie's recipe
+notes into `## Notes`. Ingredient section titles become bold groups and step
+titles a bold lead-in. Recipes with the same title get ` 1`, ` 2`, ... appended,
+and a failure on one recipe never aborts the rest (the command exits 1 if any
+failed). Mealie categories and tags are not migrated.
+
+The published image contains the CLI too, so you can migrate without a checkout.
+Run it as your own user so the files in `./out` are yours, and mount the output
+directory (the image's own filesystem isn't meant to be written to):
+
+```bash
+mkdir -p out
+docker run --rm --user "$(id -u):$(id -g)" \
+  -e MEALIE_API_TOKEN -v "$PWD/out:/out" \
+  ghcr.io/martinca/recipe2md:latest \
+  python -m app.cli mealie-migrate https://mealie.example.com --out /out
+```
+
+The container must be able to reach your Mealie instance; if Mealie runs on the
+Docker host, use its LAN address (or `--network host` on Linux) rather than
+`localhost`.
 
 ## Development
 

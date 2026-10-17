@@ -14,7 +14,7 @@ def _split(path: str) -> tuple[str, str, str]:
     return prefix, parsed.stem, parsed.suffix
 
 
-def _dedupe(files: dict[str, bytes], used_stems: dict[str, int]) -> dict[str, bytes]:
+def dedupe_stems(files: dict[str, bytes], used_stems: dict[str, int]) -> dict[str, bytes]:
     """Rename this recipe's files if its stem was already used elsewhere in the batch."""
     stems = {_split(path)[1] for path in files}
     if len(stems) != 1:
@@ -26,10 +26,19 @@ def _dedupe(files: dict[str, bytes], used_stems: dict[str, int]) -> dict[str, by
     if count == 0:
         return files
 
+    # A recipe literally titled "Soup 1" must not collide with the renamed second "Soup".
     new_stem = f"{stem} {count}"
+    while new_stem in used_stems:
+        count += 1
+        new_stem = f"{stem} {count}"
+    used_stems[new_stem] = 1
+
     renamed = {}
     for path, content in files.items():
         prefix, _, suffix = _split(path)
+        if suffix == ".md":
+            # Keep the cover embed pointing at this recipe's renamed image.
+            content = content.replace(f"![[{stem}.jpg]]".encode(), f"![[{new_stem}.jpg]]".encode())
         renamed[f"{prefix}{new_stem}{suffix}"] = content
     return renamed
 
@@ -41,7 +50,7 @@ def build_zip(rendered: list[dict[str, bytes]], errors: list[str]) -> bytes:
 
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
         for files in rendered:
-            for path, content in _dedupe(files, used_stems).items():
+            for path, content in dedupe_stems(files, used_stems).items():
                 archive.writestr(path, content)
 
         if errors:

@@ -66,3 +66,25 @@ def test_build_zip_deduplicates_colliding_stems() -> None:
         assert archive.read("Cookies.md") == b"first"
         assert archive.read("Cookies 1.md") == b"second"
         assert archive.read("Cookies 2.md") == b"third"
+
+
+def test_colliding_stem_rewrites_the_cover_embed() -> None:
+    first = {"Soup.md": b"![[Soup.jpg]]\n", "_attachments/Soup.jpg": b"a"}
+    second = {"Soup.md": b"![[Soup.jpg]]\n", "_attachments/Soup.jpg": b"b"}
+
+    with zipfile.ZipFile(BytesIO(build_zip([first, second], []))) as archive:
+        assert archive.read("Soup 1.md") == b"![[Soup 1.jpg]]\n"
+
+
+def test_literal_title_matching_a_renamed_stem_does_not_collide() -> None:
+    files = [{"Soup.md": b"a"}, {"Soup.md": b"b"}, {"Soup 1.md": b"c"}]
+
+    with zipfile.ZipFile(BytesIO(build_zip(files, []))) as archive:
+        assert sorted(archive.namelist()) == ["Soup 1 1.md", "Soup 1.md", "Soup.md"]
+
+
+def test_numbering_stays_contiguous_after_skipping_a_taken_stem() -> None:
+    files = [{"Soup.md": b"a"}, {"Soup 1.md": b"b"}, {"Soup.md": b"c"}, {"Soup.md": b"d"}]
+
+    with zipfile.ZipFile(BytesIO(build_zip(files, []))) as archive:
+        assert sorted(archive.namelist()) == ["Soup 1.md", "Soup 2.md", "Soup 3.md", "Soup.md"]

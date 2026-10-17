@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import os
 import sys
 from pathlib import Path
 
@@ -58,7 +59,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "mealie-migrate", help="migrate every recipe from a Mealie instance to a directory"
     )
     migrate_parser.add_argument("base_url", help="Mealie base URL, e.g. https://mealie.example.com")
-    migrate_parser.add_argument("--token", required=True, help="Mealie API token")
+    migrate_parser.add_argument(
+        "--token",
+        default=os.environ.get("MEALIE_API_TOKEN"),
+        help="Mealie API token (default: $MEALIE_API_TOKEN)",
+    )
     migrate_parser.add_argument("--out", type=Path, default=Path("out"), help="output directory")
 
     return parser
@@ -74,6 +79,9 @@ def main(argv: list[str] | None = None) -> int:
         return 1 if failures else 0
 
     if args.command == "mealie-migrate":
+        if not args.token:
+            print("FAILED: pass --token or set MEALIE_API_TOKEN", file=sys.stderr)
+            return 1
         try:
             failures = asyncio.run(
                 migrate_from_mealie(args.base_url, args.token, args.out, settings)

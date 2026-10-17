@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from app.models import IngredientGroup, Recipe
 from app.render import render
 from app.scrape import ScrapeError, scrape
 
@@ -146,3 +147,19 @@ def test_page_with_no_title_or_ingredients_fails_to_scrape() -> None:
     html = (FIXTURES / "unparseable.html").read_text()
     with pytest.raises(ScrapeError):
         scrape(html, "https://example.com/not-a-recipe")
+
+
+def test_rating_and_migrated_notes_are_rendered() -> None:
+    recipe = Recipe(
+        title="Soup",
+        source_url="",
+        ingredient_groups=[IngredientGroup(items=["1 onion"])],
+        directions=["Simmer."],
+        rating=4.5,
+        notes=["Use stock."],
+    )
+
+    markdown = render(recipe)["Soup.md"].decode()
+
+    assert "\nrating: 4.5\n" in markdown
+    assert "## Notes\n\nUse stock.\n\n## Nutrition" in markdown
