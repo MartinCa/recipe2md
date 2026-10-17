@@ -25,7 +25,7 @@ from app.normalise import (
     normalise_quantities,
     parse_servings,
 )
-from app.packaging import _dedupe
+from app.packaging import dedupe_stems
 from app.render import render
 
 logger = logging.getLogger(__name__)
@@ -70,9 +70,7 @@ def to_recipe(data: dict[str, Any]) -> Recipe:
 
     ingredient_groups = _ingredient_groups(data.get("recipeIngredient") or [])
     directions = [
-        normalise_quantities(text)
-        for step in (data.get("recipeInstructions") or [])
-        if (text := _step_text(step))
+        normalise_quantities(text) for text in _directions(data.get("recipeInstructions") or [])
     ]
     nutrients = {key: str(value) for key, value in (data.get("nutrition") or {}).items() if value}
     all_text = [*(item for group in ingredient_groups for item in group.items), *directions]
@@ -96,23 +94,41 @@ def to_recipe(data: dict[str, Any]) -> Recipe:
 def _servings(data: dict[str, Any]) -> int | None:
     """Fall back to Mealie's numeric ``recipeServings`` when ``recipeYield`` text is empty."""
     servings = data.get("recipeServings")
-    return int(servings) if isinstance(servings, int | float) and servings >= 1 else None
+    if isinstance(servings, bool) or not isinstance(servings, int | float):
+        return None
+    return round(servings) if servings >= 1 else None
 
 
-def _step_text(step: dict[str, Any]) -> str:
-    """A step's text, with its section title (Mealie's per-step ``title``) kept as a bold lead."""
-    text = (step.get("text") or "").strip()
-    title = (step.get("title") or "").strip()
-    return f"**{title}** {text}" if text and title else text
+def _directions(steps: list[dict[str, Any]]) -> list[str]:
+    """Step texts, keeping Mealie's per-step section ``title`` as a bold lead-in.
+
+    Mealie models a section header as a step with a title and no text. Directions are one
+    numbered list with no group equivalent, so such a title carries over to the next step
+    with text rather than becoming a numbered step of its own.
+    """
+    directions: list[str] = []
+    pending_title = ""
+    for step in steps:
+        text = (step.get("text") or "").strip()
+        title = (step.get("title") or "").strip() or pending_title
+        if not text:
+            pending_title = title
+            continue
+        pending_title = ""
+        directions.append(f"**{title}** {text}" if title else text)
+    return directions
 
 
 def _notes(notes: list[dict[str, Any]]) -> list[str]:
+    """Note bodies with their title as a bold heading; a title-only note keeps just the title."""
     result = []
     for note in notes:
         text = (note.get("text") or "").strip()
         title = (note.get("title") or "").strip()
-        if text:
-            result.append(f"**{title}**\n{text}" if title else text)
+        if title and text:
+            result.append(f"**{title}**\n{text}")
+        elif title or text:
+            result.append(f"**{title}**" if title else text)
     return result
 
 
@@ -206,7 +222,7 @@ async def migrate_from_mealie(base_url: str, token: str, out_dir: Path, settings
                     except Exception as exc:  # a failed image fetch is not a failed migration
                         logger.info("image fetch failed for %s: %s", slug, exc)
 
-                files = _dedupe(render(recipe), used_stems)
+                files = dedupe_stems(render(recipe), used_stems)
             except Exception:
                 logger.exception("failed to migrate recipe %r", slug)
                 failures += 1

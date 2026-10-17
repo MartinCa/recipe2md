@@ -276,3 +276,29 @@ async def test_migrate_from_mealie_downloads_images_and_dedupes_titles(tmp_path:
     assert (tmp_path / "_attachments" / "Soup.jpg").exists()
     assert (tmp_path / "_attachments" / "Soup 1.jpg").exists()
     assert "![[Soup 1.jpg]]" in (tmp_path / "Soup 1.md").read_text()
+
+
+def test_title_only_step_carries_over_to_the_next_step() -> None:
+    recipe = to_recipe(
+        {
+            "name": "Soup",
+            "recipeInstructions": [
+                {"title": "For the sauce", "text": ""},
+                {"text": "Whisk."},
+                {"text": "Simmer."},
+            ],
+        }
+    )
+
+    assert recipe.directions == ["**For the sauce** Whisk.", "Simmer."]
+
+
+def test_title_only_note_keeps_its_title() -> None:
+    recipe = to_recipe({"name": "Soup", "notes": [{"title": "Tip", "text": ""}]})
+
+    assert recipe.notes == ["**Tip**"]
+
+
+@pytest.mark.parametrize(("servings", "expected"), [(True, None), (2.5, 2), (4.0, 4), (0, None)])
+def test_servings_fallback(servings: object, expected: int | None) -> None:
+    assert to_recipe({"name": "Soup", "recipeServings": servings}).servings == expected

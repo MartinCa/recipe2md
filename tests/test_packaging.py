@@ -74,3 +74,10 @@ def test_colliding_stem_rewrites_the_cover_embed() -> None:
 
     with zipfile.ZipFile(BytesIO(build_zip([first, second], []))) as archive:
         assert archive.read("Soup 1.md") == b"![[Soup 1.jpg]]\n"
+
+
+def test_literal_title_matching_a_renamed_stem_does_not_collide() -> None:
+    files = [{"Soup.md": b"a"}, {"Soup.md": b"b"}, {"Soup 1.md": b"c"}]
+
+    with zipfile.ZipFile(BytesIO(build_zip(files, []))) as archive:
+        assert sorted(archive.namelist()) == ["Soup 1 1.md", "Soup 1.md", "Soup.md"]
