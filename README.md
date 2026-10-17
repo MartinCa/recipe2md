@@ -214,6 +214,22 @@ titles a bold lead-in. Recipes with the same title get ` 1`, ` 2`, ... appended,
 and a failure on one recipe never aborts the rest (the command exits 1 if any
 failed). Mealie categories and tags are not migrated.
 
+The published image contains the CLI too, so you can migrate without a checkout.
+Run it as your own user so the files in `./out` are yours, and mount the output
+directory (the image's own filesystem isn't meant to be written to):
+
+```bash
+mkdir -p out
+docker run --rm --user "$(id -u):$(id -g)" \
+  -e MEALIE_API_TOKEN -v "$PWD/out:/out" \
+  ghcr.io/martinca/recipe2md:latest \
+  python -m app.cli mealie-migrate https://mealie.example.com --out /out
+```
+
+The container must be able to reach your Mealie instance; if Mealie runs on the
+Docker host, use its LAN address (or `--network host` on Linux) rather than
+`localhost`.
+
 ## Development
 
 Requires [uv](https://docs.astral.sh/uv/) and Python 3.14.
