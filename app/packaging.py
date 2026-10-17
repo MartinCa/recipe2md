@@ -30,6 +30,9 @@ def _dedupe(files: dict[str, bytes], used_stems: dict[str, int]) -> dict[str, by
     renamed = {}
     for path, content in files.items():
         prefix, _, suffix = _split(path)
+        if suffix == ".md":
+            # Keep the cover embed pointing at this recipe's renamed image.
+            content = content.replace(f"![[{stem}.jpg]]".encode(), f"![[{new_stem}.jpg]]".encode())
         renamed[f"{prefix}{new_stem}{suffix}"] = content
     return renamed
 

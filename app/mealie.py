@@ -19,7 +19,13 @@ import isodate
 from app.config import Settings
 from app.images import process_image
 from app.models import IngredientGroup, Recipe
-from app.normalise import normalise_language, normalise_quantities, parse_servings
+from app.normalise import (
+    contains_imperial_units,
+    normalise_language,
+    normalise_quantities,
+    parse_servings,
+)
+from app.packaging import _dedupe
 from app.render import render
 
 logger = logging.getLogger(__name__)
@@ -64,11 +70,12 @@ def to_recipe(data: dict[str, Any]) -> Recipe:
 
     ingredient_groups = _ingredient_groups(data.get("recipeIngredient") or [])
     directions = [
-        normalise_quantities(step["text"].strip())
+        normalise_quantities(text)
         for step in (data.get("recipeInstructions") or [])
-        if step.get("text", "").strip()
+        if (text := _step_text(step))
     ]
     nutrients = {key: str(value) for key, value in (data.get("nutrition") or {}).items() if value}
+    all_text = [*(item for group in ingredient_groups for item in group.items), *directions]
 
     return Recipe(
         title=title,
@@ -76,11 +83,37 @@ def to_recipe(data: dict[str, Any]) -> Recipe:
         ingredient_groups=ingredient_groups,
         directions=directions,
         language=normalise_language(None),
-        servings=parse_servings(data.get("recipeYield")),
+        servings=parse_servings(data.get("recipeYield")) or _servings(data),
         time_minutes=_parse_minutes(data.get("totalTime")),
         description=data.get("description") or None,
         nutrients=nutrients,
+        needs_metric=contains_imperial_units(all_text),
+        rating=data.get("rating") or None,
+        notes=_notes(data.get("notes") or []),
     )
+
+
+def _servings(data: dict[str, Any]) -> int | None:
+    """Fall back to Mealie's numeric ``recipeServings`` when ``recipeYield`` text is empty."""
+    servings = data.get("recipeServings")
+    return int(servings) if isinstance(servings, int | float) and servings >= 1 else None
+
+
+def _step_text(step: dict[str, Any]) -> str:
+    """A step's text, with its section title (Mealie's per-step ``title``) kept as a bold lead."""
+    text = (step.get("text") or "").strip()
+    title = (step.get("title") or "").strip()
+    return f"**{title}** {text}" if text and title else text
+
+
+def _notes(notes: list[dict[str, Any]]) -> list[str]:
+    result = []
+    for note in notes:
+        text = (note.get("text") or "").strip()
+        title = (note.get("title") or "").strip()
+        if text:
+            result.append(f"**{title}**\n{text}" if title else text)
+    return result
 
 
 def _ingredient_groups(items: list[dict[str, Any]]) -> list[IngredientGroup]:
@@ -94,11 +127,30 @@ def _ingredient_groups(items: list[dict[str, Any]]) -> list[IngredientGroup]:
             current = IngredientGroup(name=title or None, items=[])
             groups.append(current)
 
-        text = (item.get("display") or item.get("note") or item.get("originalText") or "").strip()
+        text = _ingredient_text(item)
         if text:
             current.items.append(normalise_quantities(text))
 
     return [group for group in groups if group.items]
+
+
+def _ingredient_text(item: dict[str, Any]) -> str:
+    """``display`` is empty on older Mealie versions; rebuild it from the structured parts."""
+    display = (item.get("display") or "").strip()
+    if display:
+        return display
+
+    quantity = item.get("quantity")
+    parts = [
+        f"{quantity:g}" if isinstance(quantity, int | float) and quantity else "",
+        ((item.get("unit") or {}).get("name") or "") if quantity else "",
+        (item.get("food") or {}).get("name") or "",
+        item.get("note") or "",
+    ]
+    return (
+        " ".join(part.strip() for part in parts if part.strip())
+        or (item.get("originalText") or "").strip()
+    )
 
 
 def _parse_minutes(value: str | None) -> int | None:
@@ -114,11 +166,10 @@ def _parse_minutes(value: str | None) -> int | None:
     return int(match.group()) if match else None
 
 
-def _image_url(data: dict[str, Any]) -> str | None:
-    """Mealie's own asset path varies by version; only take an already-absolute URL."""
-    image = data.get("image")
-    if isinstance(image, str) and image.startswith(("http://", "https://")):
-        return image
+def _image_path(data: dict[str, Any]) -> str | None:
+    """Mealie serves every recipe's cover as WebP at a fixed path keyed by recipe id."""
+    if data.get("image") and data.get("id"):
+        return f"/api/media/recipes/{data['id']}/images/original.webp"
     return None
 
 
@@ -127,6 +178,7 @@ async def migrate_from_mealie(base_url: str, token: str, out_dir: Path, settings
     out_dir.mkdir(parents=True, exist_ok=True)
     headers = {"Authorization": f"Bearer {token}", "User-Agent": settings.user_agent}
     failures = 0
+    used_stems: dict[str, int] = {}
 
     async with httpx.AsyncClient(
         base_url=base_url, headers=headers, timeout=settings.request_timeout
@@ -141,10 +193,10 @@ async def migrate_from_mealie(base_url: str, token: str, out_dir: Path, settings
                 data = await fetch_recipe(client, slug)
                 recipe = to_recipe(data)
 
-                image_url = _image_url(data)
-                if image_url:
+                image_path = _image_path(data)
+                if image_path:
                     try:
-                        response = await client.get(image_url)
+                        response = await client.get(image_path)
                         response.raise_for_status()
                         recipe.image = process_image(
                             response.content,
@@ -154,7 +206,7 @@ async def migrate_from_mealie(base_url: str, token: str, out_dir: Path, settings
                     except Exception as exc:  # a failed image fetch is not a failed migration
                         logger.info("image fetch failed for %s: %s", slug, exc)
 
-                files = render(recipe)
+                files = _dedupe(render(recipe), used_stems)
             except Exception:
                 logger.exception("failed to migrate recipe %r", slug)
                 failures += 1

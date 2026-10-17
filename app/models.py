@@ -28,6 +28,9 @@ class Recipe:
     time_minutes: int | None = None
     description: str | None = None
     nutrients: dict[str, str] = field(default_factory=dict)
+    rating: float | None = None
+    notes: list[str] = field(default_factory=list)
+    """Pre-existing notes (e.g. migrated from Mealie); scraped recipes leave this empty."""
     needs_metric: bool = False
     image_url: str | None = None
     image: bytes | None = None

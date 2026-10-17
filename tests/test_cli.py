@@ -122,3 +122,12 @@ def test_main_mealie_migrate_reports_failure_when_the_api_is_unreachable(
     )
 
     assert exit_code == 1
+
+
+def test_main_mealie_migrate_requires_a_token(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("MEALIE_API_TOKEN", raising=False)
+    args = ["mealie-migrate", "https://mealie.example.com", "--out", str(tmp_path)]
+
+    assert main(args) == 1

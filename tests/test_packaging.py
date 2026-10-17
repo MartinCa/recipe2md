@@ -66,3 +66,11 @@ def test_build_zip_deduplicates_colliding_stems() -> None:
         assert archive.read("Cookies.md") == b"first"
         assert archive.read("Cookies 1.md") == b"second"
         assert archive.read("Cookies 2.md") == b"third"
+
+
+def test_colliding_stem_rewrites_the_cover_embed() -> None:
+    first = {"Soup.md": b"![[Soup.jpg]]\n", "_attachments/Soup.jpg": b"a"}
+    second = {"Soup.md": b"![[Soup.jpg]]\n", "_attachments/Soup.jpg": b"b"}
+
+    with zipfile.ZipFile(BytesIO(build_zip([first, second], []))) as archive:
+        assert archive.read("Soup 1.md") == b"![[Soup 1.jpg]]\n"
