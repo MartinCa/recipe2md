@@ -215,16 +215,30 @@ and a failure on one recipe never aborts the rest (the command exits 1 if any
 failed). Mealie categories and tags are not migrated.
 
 The published image contains the CLI too, so you can migrate without a checkout.
-Run it as your own user so the files in `./out` are yours, and mount the output
-directory (the image's own filesystem isn't meant to be written to):
+Mount an output directory (the image's own filesystem isn't meant to be written
+to) and make sure the container user can write to it:
 
 ```bash
 mkdir -p out
+
+# Docker
 docker run --rm --user "$(id -u):$(id -g)" \
   -e MEALIE_API_TOKEN -v "$PWD/out:/out" \
   ghcr.io/martinca/recipe2md:latest \
   python -m app.cli mealie-migrate https://mealie.example.com --out /out
+
+# Rootless Podman (also what `docker` is on hosts with podman-docker installed)
+podman run --rm --userns=keep-id \
+  -e MEALIE_API_TOKEN -v "$PWD/out:/out:Z" \
+  ghcr.io/martinca/recipe2md:latest \
+  python -m app.cli mealie-migrate https://mealie.example.com --out /out
 ```
+
+Running as your own user keeps the files in `./out` yours. Rootless Podman needs
+`--userns=keep-id` instead of `--user`: without it your UID is remapped inside
+the container and the mount shows up as unwritable (`PermissionError: ...
+/out/...`). The `:Z` relabels the mount for SELinux hosts and is harmless
+elsewhere.
 
 The container must be able to reach your Mealie instance; if Mealie runs on the
 Docker host, use its LAN address (or `--network host` on Linux) rather than

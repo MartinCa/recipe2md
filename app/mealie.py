@@ -9,6 +9,7 @@ else uses.
 from __future__ import annotations
 
 import logging
+import os
 import re
 from pathlib import Path
 from typing import Any
@@ -192,6 +193,8 @@ def _image_path(data: dict[str, Any]) -> str | None:
 async def migrate_from_mealie(base_url: str, token: str, out_dir: Path, settings: Settings) -> int:
     """Render every recipe from a Mealie instance into out_dir. Returns the failure count."""
     out_dir.mkdir(parents=True, exist_ok=True)
+    if not os.access(out_dir, os.W_OK | os.X_OK):
+        raise MealieError(f"output directory {out_dir} is not writable")
     headers = {"Authorization": f"Bearer {token}", "User-Agent": settings.user_agent}
     failures = 0
     used_stems: dict[str, int] = {}
@@ -223,15 +226,14 @@ async def migrate_from_mealie(base_url: str, token: str, out_dir: Path, settings
                         logger.info("image fetch failed for %s: %s", slug, exc)
 
                 files = dedupe_stems(render(recipe), used_stems)
+                for relative_path, content in files.items():
+                    destination = out_dir / relative_path
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    destination.write_bytes(content)
             except Exception:
                 logger.exception("failed to migrate recipe %r", slug)
                 failures += 1
                 continue
-
-            for relative_path, content in files.items():
-                destination = out_dir / relative_path
-                destination.parent.mkdir(parents=True, exist_ok=True)
-                destination.write_bytes(content)
             logger.info("migrated %s", slug)
 
     return failures

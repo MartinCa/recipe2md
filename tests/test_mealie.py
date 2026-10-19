@@ -302,3 +302,42 @@ def test_title_only_note_keeps_its_title() -> None:
 @pytest.mark.parametrize(("servings", "expected"), [(True, None), (2.5, 2), (4.0, 4), (0, None)])
 def test_servings_fallback(servings: object, expected: int | None) -> None:
     assert to_recipe({"name": "Soup", "recipeServings": servings}).servings == expected
+
+
+async def test_migrate_from_mealie_fails_fast_when_the_output_dir_is_unwritable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("app.mealie.os.access", lambda *_args: False)
+
+    with pytest.raises(MealieError, match="not writable"):
+        await migrate_from_mealie("https://mealie.example.com", "test-token", tmp_path, Settings())
+
+
+@respx.mock
+async def test_migrate_from_mealie_counts_write_errors_as_failures(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    respx.get("https://mealie.example.com/api/recipes", params={"page": "1", "perPage": "50"}).mock(
+        return_value=httpx.Response(200, json={"items": [{"slug": "soup"}], "next": None})
+    )
+    respx.get("https://mealie.example.com/api/recipes/soup").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "name": "Soup",
+                "recipeIngredient": [{"title": "", "display": "1 onion"}],
+                "recipeInstructions": [{"text": "Simmer."}],
+            },
+        )
+    )
+
+    def deny(self: Path, data: bytes) -> int:
+        raise PermissionError(13, "Permission denied", str(self))
+
+    monkeypatch.setattr(Path, "write_bytes", deny)
+
+    failures = await migrate_from_mealie(
+        "https://mealie.example.com", "test-token", tmp_path, Settings()
+    )
+
+    assert failures == 1
