@@ -1,8 +1,13 @@
-# Both stages share a base distro so the virtualenv copied between them stays valid.
-ARG UV_IMAGE=ghcr.io/astral-sh/uv:0.13.5-python3.15-trixie-slim@sha256:86a05dd8f19b21368fbb160c7e2ad0576780bebbe89114b6deeba2506f7612e1
+# The builder reuses the runtime image so the virtualenv copied between stages always
+# matches its interpreter; uv itself is copied in as a standalone binary.
+ARG UV_IMAGE=ghcr.io/astral-sh/uv:0.13.5@sha256:32a7bb39b496babbd997b0a39a4d66c126bdaf5661b302bf6f06abda8deca6ff
 ARG RUNTIME_IMAGE=python:3.15.0-slim-trixie@sha256:2da676046630d7bf14c6764ae1143dc7fa0377a53f94bf5a642f0b214aca5bce
 
-FROM ${UV_IMAGE} AS builder
+FROM ${UV_IMAGE} AS uv
+
+FROM ${RUNTIME_IMAGE} AS builder
+
+COPY --from=uv /uv /usr/local/bin/uv
 
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
