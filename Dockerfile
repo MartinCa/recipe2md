@@ -1,7 +1,7 @@
 # The builder reuses the runtime image so the virtualenv copied between stages always
 # matches its interpreter; uv itself is copied in as a standalone binary.
 ARG UV_IMAGE=ghcr.io/astral-sh/uv:0.13.6@sha256:af22a52f5eafef3d78e551599d405c02df61919d18028f0cea8eda93bc9986d0
-ARG RUNTIME_IMAGE=python:3.15.1-slim-trixie@sha256:533b0b2f9b5d46fd097091cf826f27902f1d6c3bca714b6dc74551356aa97a51
+ARG RUNTIME_IMAGE=docker.io/library/python:3.15.1-slim-trixie@sha256:533b0b2f9b5d46fd097091cf826f27902f1d6c3bca714b6dc74551356aa97a51
 
 FROM ${UV_IMAGE} AS uv
 
